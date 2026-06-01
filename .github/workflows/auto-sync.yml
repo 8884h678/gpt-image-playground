@@ -1,0 +1,36 @@
+name: Auto Sync Upstream
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PAT }}
+
+      - name: Force Update Main Branch
+        run: |
+          # 抓取原作者的最新代码
+          git remote add upstream https://github.com/CookSleep/gpt_image_playground.git || git remote set-url upstream https://github.com/CookSleep/gpt_image_playground.git
+          git fetch upstream
+          
+          # 强制把你的 main 分支对齐到原作者的 main 分支（但你在 sync-bot 分支，所以非常安全）
+          git branch -f main upstream/main
+          
+          # 强制推送更新后的 main 分支
+          git push https://${{ secrets.PAT }}@github.com/${{ github.repository }}.git main --force
+
+      - name: Trigger Vercel Deployment
+        if: success()
+        run: |
+          HOOK_URL="${{ secrets.VERCEL_DEPLOY_HOOK }}"
+          if [ -n "$HOOK_URL" ]; then
+            curl -s -X POST "$HOOK_URL"
+            echo "成功触发 Vercel 部署！"
+          fi
