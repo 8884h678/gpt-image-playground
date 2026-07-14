@@ -1,4 +1,4 @@
-import type { AgentConversation, AgentRound, ResponsesOutputItem, TaskRecord } from '../types'
+import type { AgentRound, ResponsesOutputItem, TaskRecord } from '../types'
 import { collectWebSearchCalls, getAgentRoundOutputItems, getWebSearchStatusForCalls, type AgentWebSearchStatus } from './agentWebSearch'
 
 const AGENT_STOPPED_MESSAGE = '已停止生成。'
@@ -52,50 +52,67 @@ export function getAgentAssistantBlocks(round: AgentRound | null, taskSlots: Age
   const outputItems = getAgentRoundOutputItems(round, allTasks)
   const tasksForRound = taskSlots.map((slot) => slot.task).filter(Boolean) as TaskRecord[]
   const roundInterrupted = isAgentRoundInterrupted(round)
-  if (outputItems.length === 0) {
-    return [
-      ...(hasText ? [{ type: 'text' as const, key: 'text:fallback' }] : []),
-      ...taskSlots.map((slot) => slot.task
-        ? ({ type: 'image-task' as const, task: slot.task, key: `image:${slot.task.id}` })
-        : ({ type: 'deleted-image-task' as const, taskId: slot.taskId, key: `deleted-image:${slot.taskId}` }),
-      ),
-    ]
-  }
-
   const blocks: AgentAssistantBlock[] = []
   const renderedTaskIds = new Set<string>()
+  const pushTaskSlot = (slot: AgentRoundTaskSlot) => {
+    if (renderedTaskIds.has(slot.taskId)) return
+    renderedTaskIds.add(slot.taskId)
+    blocks.push(slot.task
+      ? { type: 'image-task', task: slot.task, key: `image:${slot.taskId}` }
+      : { type: 'deleted-image-task', taskId: slot.taskId, key: `deleted-image:${slot.taskId}` })
+  }
+
+  if (outputItems.length === 0) {
+    if (hasText) blocks.push({ type: 'text', key: 'text:fallback' })
+    for (const slot of taskSlots) pushTaskSlot(slot)
+    return blocks
+  }
+
+  const renderedImageCalls = new Set<string>()
   let renderedTextBlocks = 0
   let webSearchGroup: ResponsesOutputItem[] = []
+  let webSearchGroupStart = -1
 
   const flushWebSearchGroup = () => {
     if (webSearchGroup.length === 0) return
     const status = getWebSearchStatusForCalls(collectWebSearchCalls(webSearchGroup))
-    if (status) blocks.push({ type: 'web-search', status: roundInterrupted ? markToolStatusStopped(status) : status, key: `web-search:${blocks.length}:${webSearchGroup.map((item) => item.id).join(':')}` })
+    if (status) blocks.push({ type: 'web-search', status: roundInterrupted ? markToolStatusStopped(status) : status, key: `web-search:${webSearchGroupStart}` })
     webSearchGroup = []
+    webSearchGroupStart = -1
   }
 
-  for (const item of outputItems) {
+  for (const [outputIndex, item] of outputItems.entries()) {
     if (item.type === 'web_search_call') {
+      if (webSearchGroup.length === 0) webSearchGroupStart = outputIndex
       webSearchGroup.push(item)
       continue
     }
 
     flushWebSearchGroup()
 
+    const singleImageCall = item.type === 'image_generation_call' || (item.type === 'function_call' && item.name === 'generate_image')
+    const imageCallKey = item.type === 'image_generation_call' && item.id
+      ? `image_generation_call:${item.id}`
+      : item.type === 'function_call' && item.name === 'generate_image' && item.call_id
+      ? `generate_image:${item.call_id}`
+      : null
+    if (singleImageCall && imageCallKey && renderedImageCalls.has(imageCallKey)) continue
+    if (singleImageCall && imageCallKey) renderedImageCalls.add(imageCallKey)
+
     const imageTask = getImageTaskForOutputItem(item, tasksForRound)
-    if (imageTask && !renderedTaskIds.has(imageTask.id)) {
-      renderedTaskIds.add(imageTask.id)
-      blocks.push({ type: 'image-task', task: imageTask, key: `image:${imageTask.id}` })
+    if (imageTask) {
+      pushTaskSlot({ taskId: imageTask.id, task: imageTask })
+      continue
+    }
+    if (singleImageCall) {
+      const deletedSlot = taskSlots.find((slot) => !slot.task && !renderedTaskIds.has(slot.taskId))
+      if (deletedSlot) pushTaskSlot(deletedSlot)
       continue
     }
 
     const batchImageTasks = getBatchImageTasksForOutputItem(item, tasksForRound)
     if (batchImageTasks.length > 0) {
-      for (const task of batchImageTasks) {
-        if (renderedTaskIds.has(task.id)) continue
-        renderedTaskIds.add(task.id)
-        blocks.push({ type: 'image-task', task, key: `image:${task.id}` })
-      }
+      for (const task of batchImageTasks) pushTaskSlot({ taskId: task.id, task })
       continue
     }
 
@@ -105,7 +122,7 @@ export function getAgentAssistantBlocks(round: AgentRound | null, taskSlots: Age
         status: roundInterrupted
           ? markToolStatusStopped({ text: '正在填写并发图像生成参数', completed: false })
           : { text: '正在填写并发图像生成参数', completed: false },
-        key: `batch-params:${item.call_id ?? item.id ?? blocks.length}`,
+        key: `batch-params:${item.call_id ?? item.id ?? outputIndex}:${outputIndex}`,
       })
       continue
     }
@@ -114,7 +131,7 @@ export function getAgentAssistantBlocks(round: AgentRound | null, taskSlots: Age
       const content = getTextFromOutputItem(item)
       if (content) {
         renderedTextBlocks += 1
-        blocks.push({ type: 'text', key: `text:${item.id ?? blocks.length}`, content })
+        blocks.push({ type: 'text', key: `text:${item.id ?? outputIndex}:${outputIndex}`, content })
       }
     }
   }
@@ -122,13 +139,7 @@ export function getAgentAssistantBlocks(round: AgentRound | null, taskSlots: Age
   flushWebSearchGroup()
 
   if (hasText && renderedTextBlocks === 0) blocks.push({ type: 'text', key: 'text:fallback' })
-  for (const slot of taskSlots) {
-    if (slot.task) {
-      if (!renderedTaskIds.has(slot.task.id)) blocks.push({ type: 'image-task', task: slot.task, key: `image:${slot.task.id}` })
-    } else {
-      blocks.push({ type: 'deleted-image-task', taskId: slot.taskId, key: `deleted-image:${slot.taskId}` })
-    }
-  }
+  for (const slot of taskSlots) pushTaskSlot(slot)
   return blocks
 }
 
@@ -142,19 +153,6 @@ export function getAgentAssistantCopyContent(fallbackContent: string, blocks: Ag
     .filter(Boolean)
 
   return parts.length > 0 ? parts.join('\n\n') : fallbackContent
-}
-
-export function getConversationSearchText(conversation: AgentConversation) {
-  return [
-    conversation.title,
-    ...conversation.messages.map((message) => message.content),
-    ...conversation.rounds.map((round) => round.prompt),
-  ].join('\n').toLocaleLowerCase()
-}
-
-export function getRoundTasks(round: AgentRound | null, tasks: TaskRecord[]) {
-  if (!round) return []
-  return round.outputTaskIds.map((taskId) => tasks.find((task) => task.id === taskId) ?? null)
 }
 
 export function getRoundTaskSlots(round: AgentRound | null, tasks: TaskRecord[]): AgentRoundTaskSlot[] {
