@@ -1,4 +1,4 @@
-import type { RefObject } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import ViewportTooltip from '../ViewportTooltip'
 import { CloseIcon, LinkIcon } from '../icons'
@@ -8,17 +8,12 @@ interface CustomProviderModalProps {
   json: string
   error: string | null
   isImportingJson: boolean
-  llmPromptTooltipVisible: boolean
   scrollBoundaryRef: RefObject<HTMLDivElement | null>
   onClose: () => void
   onCopyLlmPrompt: () => void
   onImportJson: () => void
   onJsonChange: (json: string) => void
   onSave: () => void
-  onShowLlmPromptTooltip: () => void
-  onHideLlmPromptTooltip: () => void
-  onLlmPromptTouchStart: () => void
-  onLlmPromptTouchEnd: () => void
 }
 
 export default function CustomProviderModal({
@@ -26,18 +21,24 @@ export default function CustomProviderModal({
   json,
   error,
   isImportingJson,
-  llmPromptTooltipVisible,
   scrollBoundaryRef,
   onClose,
   onCopyLlmPrompt,
   onImportJson,
   onJsonChange,
   onSave,
-  onShowLlmPromptTooltip,
-  onHideLlmPromptTooltip,
-  onLlmPromptTouchStart,
-  onLlmPromptTouchEnd,
 }: CustomProviderModalProps) {
+  const llmPromptTooltipTimerRef = useRef<number | null>(null)
+  const [llmPromptTooltipVisible, setLlmPromptTooltipVisible] = useState(false)
+
+  const clearLlmPromptTooltipTimer = () => {
+    if (llmPromptTooltipTimerRef.current == null) return
+    window.clearTimeout(llmPromptTooltipTimerRef.current)
+    llmPromptTooltipTimerRef.current = null
+  }
+
+  useEffect(() => () => clearLlmPromptTooltipTimer(), [])
+
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/30 backdrop-blur-sm animate-overlay-in" onClick={onClose} />
@@ -75,13 +76,19 @@ export default function CustomProviderModal({
                   type="button"
                   onClick={onCopyLlmPrompt}
                   aria-label="复制用于生成完整导入 JSON 的 LLM 提示词"
-                  onMouseEnter={onShowLlmPromptTooltip}
-                  onMouseLeave={onHideLlmPromptTooltip}
-                  onFocus={onShowLlmPromptTooltip}
-                  onBlur={onHideLlmPromptTooltip}
-                  onTouchStart={onLlmPromptTouchStart}
-                  onTouchEnd={onLlmPromptTouchEnd}
-                  onTouchCancel={onLlmPromptTouchEnd}
+                  onMouseEnter={() => setLlmPromptTooltipVisible(true)}
+                  onMouseLeave={() => setLlmPromptTooltipVisible(false)}
+                  onFocus={() => setLlmPromptTooltipVisible(true)}
+                  onBlur={() => setLlmPromptTooltipVisible(false)}
+                  onTouchStart={() => {
+                    clearLlmPromptTooltipTimer()
+                    llmPromptTooltipTimerRef.current = window.setTimeout(() => {
+                      setLlmPromptTooltipVisible(true)
+                      llmPromptTooltipTimerRef.current = null
+                    }, 450)
+                  }}
+                  onTouchEnd={clearLlmPromptTooltipTimer}
+                  onTouchCancel={clearLlmPromptTooltipTimer}
                   className="flex items-center gap-1.5 rounded-xl bg-white px-3 py-2 text-xs font-medium text-gray-700 shadow-sm border border-gray-200/80 transition hover:bg-gray-50 hover:text-gray-900 dark:bg-white/[0.05] dark:border-white/[0.08] dark:text-gray-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
                 >
                   <LinkIcon className="h-3.5 w-3.5" />

@@ -1,10 +1,4 @@
-import type { CustomProviderDefinition } from '../types'
-
-export interface CustomProviderForm {
-  json: string
-}
-
-export const DEFAULT_CUSTOM_PROVIDER_MANIFEST = {
+export const DEFAULT_CUSTOM_PROVIDER_JSON = JSON.stringify({
   name: '自定义服务商',
   submit: {
     path: 'images/generations',
@@ -48,28 +42,7 @@ export const DEFAULT_CUSTOM_PROVIDER_MANIFEST = {
       b64JsonPaths: ['data.*.b64_json'],
     },
   },
-}
-
-export function createDefaultCustomProviderForm(): CustomProviderForm {
-  return {
-    json: JSON.stringify(DEFAULT_CUSTOM_PROVIDER_MANIFEST, null, 2),
-  }
-}
-
-export function customProviderToForm(provider: CustomProviderDefinition): CustomProviderForm {
-  return {
-    json: JSON.stringify({
-      name: provider.name,
-      submit: provider.submit,
-      editSubmit: provider.editSubmit,
-      poll: provider.poll,
-    }, null, 2),
-  }
-}
-
-export function customProviderFormToInput(form: CustomProviderForm) {
-  return JSON.parse(form.json)
-}
+}, null, 2)
 
 export const CUSTOM_PROVIDER_LLM_PROMPT = `# 角色
 你是 API 文档解析助手。你的任务是根据用户提供的图像生成 API 文档，生成本应用可导入的自定义服务商配置 JSON。

@@ -31,10 +31,7 @@ import { requestBrowserNotificationPermission, type BrowserNotificationPermissio
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type AgentApiConfigMode, type ApiProfile, type AppSettings, type CustomProviderDefinition, type ZipDownloadRoute } from '../types'
 import {
   CUSTOM_PROVIDER_LLM_PROMPT,
-  createDefaultCustomProviderForm,
-  customProviderFormToInput,
-  customProviderToForm,
-  type CustomProviderForm,
+  DEFAULT_CUSTOM_PROVIDER_JSON,
 } from '../lib/settingsCustomProvider'
 import { useCloseOnEscape } from '../hooks/useCloseOnEscape'
 import { usePreventBackgroundScroll } from '../hooks/usePreventBackgroundScroll'
@@ -57,11 +54,12 @@ const ADD_CUSTOM_PROVIDER_VALUE = '__add_custom_provider__'
 const COPY_IMPORT_URL_OPTIONS_STORAGE_KEY = 'gpt-image-playground.copy-import-url-options'
 
 const DEFAULT_COPY_IMPORT_URL_OPTIONS = {
-  includeApiKey: false,
   useNewApiAddress: false,
   useNewApiKey: true,
   useNewApiModel: false,
 }
+
+type ProfileImportUrlOptions = CopyImportUrlOptions & { includeApiKey: boolean }
 
 function readCopyImportUrlOptions(): CopyImportUrlOptions {
   if (typeof window === 'undefined') return DEFAULT_COPY_IMPORT_URL_OPTIONS
@@ -75,7 +73,6 @@ function readCopyImportUrlOptions(): CopyImportUrlOptions {
 
 
     return {
-      includeApiKey: false,
       useNewApiAddress: Boolean(parsed.useNewApiAddress),
       useNewApiKey: parsed.useNewApiKey === undefined ? true : Boolean(parsed.useNewApiKey),
       useNewApiModel: Boolean(parsed.useNewApiModel),
@@ -155,7 +152,6 @@ export default function SettingsModal() {
 
   const profileImportUrlTooltipTimerRef = useRef<number | null>(null)
   const duplicateProfileTooltipTimerRef = useRef<number | null>(null)
-  const llmPromptTooltipTimerRef = useRef<number | null>(null)
   const settingsScrollBoundaryRef = useRef<HTMLDivElement>(null)
   const customProviderScrollBoundaryRef = useRef<HTMLDivElement>(null)
   const zipDownloadRouteScrollBoundaryRef = useRef<HTMLDivElement>(null)
@@ -169,11 +165,10 @@ export default function SettingsModal() {
   const [showCustomProviderImport, setShowCustomProviderImport] = useState(false)
   const [showZipDownloadRouteManager, setShowZipDownloadRouteManager] = useState(false)
   const [editingCustomProviderId, setEditingCustomProviderId] = useState<string | null>(null)
-  const [customProviderForm, setCustomProviderForm] = useState<CustomProviderForm>(createDefaultCustomProviderForm())
+  const [customProviderJson, setCustomProviderJson] = useState(DEFAULT_CUSTOM_PROVIDER_JSON)
   const [customProviderImportError, setCustomProviderImportError] = useState<string | null>(null)
   const [profileImportUrlTooltipVisible, setProfileImportUrlTooltipVisible] = useState(false)
   const [duplicateProfileTooltipVisible, setDuplicateProfileTooltipVisible] = useState(false)
-  const [llmPromptTooltipVisible, setLlmPromptTooltipVisible] = useState(false)
   const [activeTab, setActiveTab] = useState<SettingsTab>('api')
   const [exportConfig, setExportConfig] = useState(true)
   const [exportTasks, setExportTasks] = useState(true)
@@ -338,7 +333,6 @@ export default function SettingsModal() {
   useEffect(() => () => {
     if (profileImportUrlTooltipTimerRef.current != null) window.clearTimeout(profileImportUrlTooltipTimerRef.current)
     if (duplicateProfileTooltipTimerRef.current != null) window.clearTimeout(duplicateProfileTooltipTimerRef.current)
-    if (llmPromptTooltipTimerRef.current != null) window.clearTimeout(llmPromptTooltipTimerRef.current)
   }, [])
 
   useEffect(() => {
@@ -373,13 +367,6 @@ export default function SettingsModal() {
     if (duplicateProfileTooltipTimerRef.current != null) {
       window.clearTimeout(duplicateProfileTooltipTimerRef.current)
       duplicateProfileTooltipTimerRef.current = null
-    }
-  }
-
-  const clearLlmPromptTooltipTimer = () => {
-    if (llmPromptTooltipTimerRef.current != null) {
-      window.clearTimeout(llmPromptTooltipTimerRef.current)
-      llmPromptTooltipTimerRef.current = null
     }
   }
 
@@ -424,13 +411,13 @@ export default function SettingsModal() {
 
   const updateCopyImportUrlOptions = (patch: Partial<CopyImportUrlOptions>) => {
     setCopyImportUrlOptions((previous) => {
-      const next = { ...previous, ...patch, includeApiKey: false }
+      const next = { ...previous, ...patch }
       saveCopyImportUrlOptions(next)
       return next
     })
   }
 
-  const createProfileImportUrl = (profile: ApiProfile, options: CopyImportUrlOptions) => {
+  const createProfileImportUrl = (profile: ApiProfile, options: ProfileImportUrlOptions) => {
     const url = new URL(window.location.href)
     url.search = ''
     url.hash = ''
@@ -484,7 +471,7 @@ export default function SettingsModal() {
     return result
   }
 
-  const copyProfileImportUrl = async (profile: ApiProfile, options: CopyImportUrlOptions) => {
+  const copyProfileImportUrl = async (profile: ApiProfile, options: ProfileImportUrlOptions) => {
     try {
       await copyTextToClipboard(createProfileImportUrl(profile, options))
       showToast(options.includeApiKey ? '导入 URL 已复制（包含 API Key）' : '导入 URL 已复制', 'success')
@@ -896,7 +883,7 @@ export default function SettingsModal() {
     if (defaultConfigOnly) return
     if (value === ADD_CUSTOM_PROVIDER_VALUE) {
       setEditingCustomProviderId(null)
-      setCustomProviderForm(createDefaultCustomProviderForm())
+      setCustomProviderJson(DEFAULT_CUSTOM_PROVIDER_JSON)
       setShowCustomProviderImport(true)
       setCustomProviderImportError(null)
       return
@@ -907,18 +894,13 @@ export default function SettingsModal() {
     updateActiveProfile(switchApiProfileProvider(activeProfile, provider, customProvider), true)
   }
 
-  const updateCustomProviderForm = (patch: Partial<CustomProviderForm>) => {
-    setCustomProviderForm((current) => ({ ...current, ...patch }))
-    setCustomProviderImportError(null)
-  }
-
   const closeCustomProviderModal = () => {
     setShowCustomProviderImport(false)
     setEditingCustomProviderId(null)
   }
 
-  const buildCustomProviderFromForm = () => {
-    const input = customProviderFormToInput(customProviderForm)
+  const buildCustomProviderFromJson = () => {
+    const input = JSON.parse(customProviderJson)
     const usedIds = new Set(
       draft.customProviders
         .filter((item) => item.id !== editingCustomProviderId)
@@ -936,14 +918,19 @@ export default function SettingsModal() {
 
   function openEditCustomProvider(provider: CustomProviderDefinition) {
     setEditingCustomProviderId(provider.id)
-    setCustomProviderForm(customProviderToForm(provider))
+    setCustomProviderJson(JSON.stringify({
+      name: provider.name,
+      submit: provider.submit,
+      editSubmit: provider.editSubmit,
+      poll: provider.poll,
+    }, null, 2))
     setShowCustomProviderImport(true)
     setCustomProviderImportError(null)
   }
 
   const saveCustomProvider = () => {
     try {
-      const customProvider = buildCustomProviderFromForm()
+      const customProvider = buildCustomProviderFromJson()
       if (editingCustomProviderId) {
         const nextDraft = normalizeSettings({
           ...draft,
@@ -1042,7 +1029,12 @@ export default function SettingsModal() {
       }
 
       const provider = imported.customProviders[0]
-      setCustomProviderForm(customProviderToForm(provider))
+      setCustomProviderJson(JSON.stringify({
+        name: provider.name,
+        submit: provider.submit,
+        editSubmit: provider.editSubmit,
+        poll: provider.poll,
+      }, null, 2))
       setCustomProviderImportError(null)
       showToast('JSON 配置已导入', 'success')
     } catch (err) {
@@ -1861,26 +1853,18 @@ export default function SettingsModal() {
         {showCustomProviderImport && (
           <CustomProviderModal
             editing={Boolean(editingCustomProviderId)}
-            json={customProviderForm.json}
+            json={customProviderJson}
             error={customProviderImportError}
             isImportingJson={isImportingJson}
-            llmPromptTooltipVisible={llmPromptTooltipVisible}
             scrollBoundaryRef={customProviderScrollBoundaryRef}
             onClose={closeCustomProviderModal}
             onCopyLlmPrompt={copyCustomProviderLlmPrompt}
             onImportJson={handleCustomProviderJsonPaste}
-            onJsonChange={(json) => updateCustomProviderForm({ json })}
-            onSave={saveCustomProvider}
-            onShowLlmPromptTooltip={() => setLlmPromptTooltipVisible(true)}
-            onHideLlmPromptTooltip={() => setLlmPromptTooltipVisible(false)}
-            onLlmPromptTouchStart={() => {
-              clearLlmPromptTooltipTimer()
-              llmPromptTooltipTimerRef.current = window.setTimeout(() => {
-                setLlmPromptTooltipVisible(true)
-                llmPromptTooltipTimerRef.current = null
-              }, 450)
+            onJsonChange={(json) => {
+              setCustomProviderJson(json)
+              setCustomProviderImportError(null)
             }}
-            onLlmPromptTouchEnd={clearLlmPromptTooltipTimer}
+            onSave={saveCustomProvider}
           />
         )}
         {profileTouchDragPreview && createPortal(
@@ -1908,7 +1892,7 @@ export default function SettingsModal() {
             profile={copyImportUrlProfile}
             options={copyImportUrlOptions}
             onOptionsChange={updateCopyImportUrlOptions}
-            onCopy={(options) => copyProfileImportUrl(copyImportUrlProfile, options)}
+            onCopy={(includeApiKey) => copyProfileImportUrl(copyImportUrlProfile, { ...copyImportUrlOptions, includeApiKey })}
             onClose={() => setCopyImportUrlProfile(null)}
           />
         )}
