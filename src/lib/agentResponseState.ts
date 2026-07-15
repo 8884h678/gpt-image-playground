@@ -1,5 +1,6 @@
 import type { AgentConversation, AgentRound, ResponsesApiResponse, ResponsesOutputItem, TaskRecord } from '../types'
 import { parseBatchImageCallArguments } from './agentApi'
+import { normalizeResponsesOutputItems } from './responsesOutputState'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -46,9 +47,7 @@ export function stripPersistedAgentConversations(value: unknown): unknown {
         if (!isRecord(round) || !Array.isArray(round.responseOutput)) return round
         return {
           ...round,
-          responseOutput: round.responseOutput.map((item) =>
-            isRecord(item) ? getPersistableResponseOutputItem(item as ResponsesOutputItem) : item,
-          ),
+          responseOutput: normalizeResponsesOutputItems(round.responseOutput).map(getPersistableResponseOutputItem),
         }
       }),
     }
@@ -60,9 +59,7 @@ export function getPersistableRawResponsePayload(rawResponsePayload?: string) {
   try {
     const payload = JSON.parse(rawResponsePayload) as { output?: unknown }
     if (!Array.isArray(payload.output)) return rawResponsePayload
-    const output = payload.output.map((item) =>
-      isRecord(item) ? getPersistableResponseOutputItem(item as ResponsesOutputItem) : item,
-    )
+    const output = normalizeResponsesOutputItems(payload.output).map(getPersistableResponseOutputItem)
     return JSON.stringify({ ...payload, output }, null, 2)
   } catch {
     return rawResponsePayload
@@ -73,7 +70,7 @@ function parseResponseOutputFromPayload(rawResponsePayload?: string): ResponsesO
   if (!rawResponsePayload) return null
   try {
     const payload = JSON.parse(rawResponsePayload) as { output?: unknown }
-    return Array.isArray(payload.output) ? payload.output as ResponsesOutputItem[] : null
+    return Array.isArray(payload.output) ? normalizeResponsesOutputItems(payload.output) : null
   } catch {
     return null
   }
@@ -86,13 +83,15 @@ function sanitizeResponseOutputItemForInput(item: ResponsesOutputItem): unknown 
   if (item.type === 'message') {
     const content = (item.content ?? [])
       .map((part) => {
-        if (typeof part.text !== 'string') return null
-        if (part.type === 'output_text' || part.type === 'text') {
+        if ((part.type === 'output_text' || part.type === 'text') && typeof part.text === 'string') {
           return { type: 'output_text', text: part.text }
+        }
+        if (part.type === 'refusal' && typeof part.refusal === 'string') {
+          return { type: 'output_text', text: part.refusal }
         }
         return null
       })
-      .filter((part): part is { type: 'output_text'; text: string } => Boolean(part))
+      .filter((part): part is { type: string; text: string } => Boolean(part))
 
     return content.length > 0 ? { role: 'assistant', content } : null
   }
@@ -236,8 +235,12 @@ export function scrubResponseOutputForDeletedAgentTasks(round: AgentRound, outpu
       continue
     }
 
+    if (typeof item.output !== 'string') {
+      scrubbed.push(item)
+      continue
+    }
     try {
-      const parsed = JSON.parse(item.output ?? '{}') as { images?: unknown[] }
+      const parsed = JSON.parse(item.output) as { images?: unknown[] }
       if (!Array.isArray(parsed.images)) {
         scrubbed.push(item)
         continue
@@ -268,8 +271,9 @@ export function scrubTaskRawResponsePayloadForDeletedTasks(task: TaskRecord, rou
   try {
     const payload = JSON.parse(task.rawResponsePayload) as ResponsesApiResponse
     if (!Array.isArray(payload.output)) return task
-    const output = scrubResponseOutputForDeletedAgentTasks(round, payload.output, deletedTasks, roundTasks)
-    if (output === payload.output) return task
+    const normalizedOutput = normalizeResponsesOutputItems(payload.output)
+    const output = scrubResponseOutputForDeletedAgentTasks(round, normalizedOutput, deletedTasks, roundTasks)
+    if (JSON.stringify(output) === JSON.stringify(payload.output)) return task
     return { ...task, rawResponsePayload: JSON.stringify({ ...payload, output }, null, 2) }
   } catch {
     return task
@@ -415,7 +419,7 @@ export function createReadyAgentRecoveredToolState(round: AgentRound, tasks: Tas
 export function getAgentRecoveredToolCallCount(output: ResponsesOutputItem[], tasks: TaskRecord[]) {
   const functionOutputs = output.filter((item) => item.type === 'function_call_output')
   const functionCallCount = functionOutputs.reduce((count, item) => {
-    if (!item.output) return count
+    if (typeof item.output !== 'string' || !item.output) return count
     try {
       const payload = JSON.parse(item.output) as { images?: unknown[]; status?: string }
       if (Array.isArray(payload.images)) return count + payload.images.filter((image) => isRecord(image) && image.status === 'done').length

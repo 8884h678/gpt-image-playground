@@ -1,4 +1,5 @@
 import type { AgentConversation, AgentMessage, AgentRound, TaskRecord } from '../types'
+import { normalizeResponsesOutputItems } from './responsesOutputState'
 
 const AGENT_ROUND_IMAGE_MENTION_RE = /@(?:第)?(\d+)轮图(\d+)/g
 
@@ -6,8 +7,14 @@ function normalizeStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const proto = Object.getPrototypeOf(value)
+  return proto === Object.prototype || proto === null
+}
+
 function normalizeAgentRound(value: unknown, fallbackIndex: number): AgentRound | null {
-  if (!value || typeof value !== 'object') return null
+  if (!isRecord(value)) return null
   const round = value as Partial<AgentRound>
   if (typeof round.id !== 'string' || !round.id) return null
   if (typeof round.userMessageId !== 'string' || !round.userMessageId) return null
@@ -17,6 +24,7 @@ function normalizeAgentRound(value: unknown, fallbackIndex: number): AgentRound 
     : round.status === 'error' || round.status === 'done'
     ? round.status
     : 'done'
+  const responseOutput = Array.isArray(round.responseOutput) ? normalizeResponsesOutputItems(round.responseOutput) : undefined
 
   return {
     id: round.id,
@@ -30,7 +38,7 @@ function normalizeAgentRound(value: unknown, fallbackIndex: number): AgentRound 
     maskImageId: typeof round.maskImageId === 'string' ? round.maskImageId : null,
     outputTaskIds: normalizeStringArray(round.outputTaskIds),
     ...(typeof round.responseId === 'string' ? { responseId: round.responseId } : {}),
-    ...(Array.isArray(round.responseOutput) ? { responseOutput: round.responseOutput } : {}),
+    ...(responseOutput ? { responseOutput } : {}),
     status,
     error: status === 'error'
       ? typeof round.error === 'string' ? round.error : '上次请求已中断'
@@ -41,7 +49,7 @@ function normalizeAgentRound(value: unknown, fallbackIndex: number): AgentRound 
 }
 
 function normalizeAgentMessage(value: unknown): AgentMessage | null {
-  if (!value || typeof value !== 'object') return null
+  if (!isRecord(value)) return null
   const message = value as Partial<AgentMessage>
   if (typeof message.id !== 'string' || !message.id) return null
   if (message.role !== 'user' && message.role !== 'assistant') return null
@@ -65,9 +73,9 @@ export function normalizeAgentConversations(value: unknown): AgentConversation[]
 
   const conversationIds = new Set<string>()
   return value
-    .filter((item): item is AgentConversation => {
-      if (!item || typeof item !== 'object') return false
-      const id = (item as AgentConversation).id
+    .filter((item): item is Record<string, unknown> & { id: string } => {
+      if (!isRecord(item)) return false
+      const id = item.id
       if (typeof id !== 'string' || !id || conversationIds.has(id)) return false
       conversationIds.add(id)
       return true

@@ -7,6 +7,7 @@ import {
   getRoundTaskSlots,
   type AgentAssistantBlock,
 } from './agentAssistantBlocks'
+import { normalizeResponsesOutputItems } from './responsesOutputState'
 
 const round = (patch: Partial<AgentRound> = {}): AgentRound => ({
   id: patch.id ?? 'round-1',
@@ -57,15 +58,37 @@ const batchCall = (callId: string, count: number) => ({
 })
 
 describe('agent assistant blocks', () => {
+  it('projects normalized external message content without throwing', () => {
+    const currentRound = round({
+      responseOutput: normalizeResponsesOutputItems([
+        { type: 'message', content: [
+          null,
+          'invalid',
+          { type: 'output_text', text: 123 },
+          { type: 'output_text', text: '安全文本' },
+          { type: 'refusal', refusal: '拒绝文本' },
+          { type: 'future_content_part', payload: true },
+        ] },
+        { type: 'function_call', call_id: 'bad-call', name: 'tool', arguments: null },
+        { type: 'future_response_item', payload: true },
+      ]),
+    })
+
+    expect(() => getAgentAssistantBlocks(currentRound, [], [], true)).not.toThrow()
+    expect(getAgentAssistantBlocks(currentRound, [], [], true)).toEqual([
+      { type: 'text', key: 'text:0:0', content: '安全文本\n拒绝文本' },
+    ])
+  })
+
   it('preserves response output order', () => {
     const imageTask = task('task-1', { agentToolCallId: 'image-1' })
     const currentRound = round({
       outputTaskIds: [imageTask.id],
       responseOutput: [
         { type: 'web_search_call', id: 'search-1', status: 'completed', action: { type: 'search' } },
-        { type: 'message', id: 'message-1', content: [{ text: '搜索结果' }] },
+        { type: 'message', id: 'message-1', content: [{ type: 'output_text', text: '搜索结果' }] },
         { type: 'image_generation_call', id: 'image-1' },
-        { type: 'message', id: 'message-2', content: [{ text: '生成完成' }] },
+        { type: 'message', id: 'message-2', content: [{ type: 'output_text', text: '生成完成' }] },
       ],
     })
 
@@ -93,10 +116,10 @@ describe('agent assistant blocks', () => {
     const currentRound = round({
       outputTaskIds: ['task-deleted'],
       responseOutput: [
-        { type: 'message', id: 'message-before', content: [{ text: '生成前' }] },
+        { type: 'message', id: 'message-before', content: [{ type: 'output_text', text: '生成前' }] },
         { type: 'function_call', name: 'generate_image', call_id: 'image-call-1', arguments: '{}' },
         { type: 'function_call_output', call_id: 'image-call-1', output: '{}' },
-        { type: 'message', id: 'message-after', content: [{ text: '生成后' }] },
+        { type: 'message', id: 'message-after', content: [{ type: 'output_text', text: '生成后' }] },
       ],
     })
 
@@ -112,9 +135,9 @@ describe('agent assistant blocks', () => {
       responseOutput: [
         { type: 'web_search_call', id: 'search-1', status: 'completed', action: { type: 'search' } },
         { type: 'web_search_call', id: 'search-2', status: 'completed', action: { type: 'open_page' } },
-        { type: 'message', id: 'duplicate-id', content: [{ text: '中间文本' }] },
+        { type: 'message', id: 'duplicate-id', content: [{ type: 'output_text', text: '中间文本' }] },
         { type: 'web_search_call', id: 'search-3', status: 'completed', action: { type: 'search' } },
-        { type: 'message', id: 'duplicate-id', content: [{ text: '末尾文本' }] },
+        { type: 'message', id: 'duplicate-id', content: [{ type: 'output_text', text: '末尾文本' }] },
       ],
     })
 
@@ -134,7 +157,7 @@ describe('agent assistant blocks', () => {
       responseOutput: [
         { type: 'function_call', name: 'generate_image', call_id: 'image-call-1', arguments: '{}' },
         { type: 'function_call', name: 'generate_image', call_id: 'image-call-1', arguments: '{}' },
-        { type: 'message', content: [{ text: '完成' }] },
+        { type: 'message', content: [{ type: 'output_text', text: '完成' }] },
       ],
     })
     const tasks = [matchedTask, unmatchedTask]
@@ -164,9 +187,9 @@ describe('agent assistant blocks', () => {
     const currentRound = round({
       outputTaskIds: taskIds,
       responseOutput: [
-        { type: 'message', content: [{ text: '生成前' }] },
+        { type: 'message', content: [{ type: 'output_text', text: '生成前' }] },
         batchCall('batch-1', 2),
-        { type: 'message', content: [{ text: '生成后' }] },
+        { type: 'message', content: [{ type: 'output_text', text: '生成后' }] },
       ],
     })
 
@@ -179,9 +202,9 @@ describe('agent assistant blocks', () => {
     const currentRound = round({
       outputTaskIds: ['task-deleted-1', 'task-deleted-2'],
       responseOutput: [
-        { type: 'message', content: [{ text: '生成前' }] },
+        { type: 'message', content: [{ type: 'output_text', text: '生成前' }] },
         batchCall('batch-1', 2),
-        { type: 'message', content: [{ text: '生成后' }] },
+        { type: 'message', content: [{ type: 'output_text', text: '生成后' }] },
       ],
     })
 
@@ -213,9 +236,9 @@ describe('agent assistant blocks', () => {
     const currentRound = round({
       outputTaskIds: ['task-deleted-before', liveTask.id, 'task-deleted-after'],
       responseOutput: [
-        { type: 'message', content: [{ text: '生成前' }] },
+        { type: 'message', content: [{ type: 'output_text', text: '生成前' }] },
         { type: 'image_generation_call', id: 'image-live' },
-        { type: 'message', content: [{ text: '生成后' }] },
+        { type: 'message', content: [{ type: 'output_text', text: '生成后' }] },
       ],
     })
 
@@ -234,8 +257,8 @@ describe('agent assistant blocks', () => {
     const currentRound = round({
       outputTaskIds: ['task-deleted-1', 'task-deleted-2'],
       responseOutput: [
-        { type: 'message', content: [{ text: '生成前' }] },
-        { type: 'message', content: [{ text: '生成后' }] },
+        { type: 'message', content: [{ type: 'output_text', text: '生成前' }] },
+        { type: 'message', content: [{ type: 'output_text', text: '生成后' }] },
       ],
     })
 

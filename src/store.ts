@@ -61,9 +61,10 @@ import { hasActiveDataOperations } from './lib/dataOperations'
 import { formatExportFileTime } from './lib/exportFileName'
 import { buildExportZip, createExportBlob, getExportImageEstimatedBytes, getExportZipPlan, MAX_EXPORT_ZIP_BYTES, readExportZip, readExportZipFileAsDataUrl, readExportZipManifest } from './lib/exportZip'
 import { deleteAgentRoundFromConversation, getActiveAgentRounds, getAgentRoundPath, normalizeAgentConversations, remapAgentRoundMentionsForPathChange, uniqueIds } from './lib/agentConversationState'
-import { canonicalizeBatchFunctionCallArguments, countResponseToolCalls, createReadyAgentRecoveredToolState, getAgentFunctionOutputCallIds, getAgentRecoveredFailureError, getAgentRecoveredToolCallCount, getPersistableAgentConversations, getPersistableRawResponsePayload, mergeResponseOutputItems, scrubResponseOutputForDeletedAgentTasks, scrubTaskRawResponsePayloadForDeletedTasks, stripPersistedAgentConversations } from './lib/agentResponseState'
-import { cleanStaleAgentInputDrafts, clearInputDraftState, getPersistableAgentInputDrafts, isEmptyAgentInputDraft, normalizeAgentInputDraft, normalizeAgentInputDrafts, normalizeAgentInputDraftsByKey, remapAgentInputDraftMentionsForPathChange, restoreAgentInputDraftState, restoreGalleryInputDraftState, saveActiveAgentInputDrafts, saveGalleryInputDraft, syncActiveInputDraft, updateInputDraftImages } from './lib/inputDraftState'
+import { canonicalizeBatchFunctionCallArguments, countResponseToolCalls, createReadyAgentRecoveredToolState, getAgentFunctionOutputCallIds, getAgentRecoveredFailureError, getAgentRecoveredToolCallCount, getPersistableAgentConversations, getPersistableRawResponsePayload, mergeResponseOutputItems, scrubResponseOutputForDeletedAgentTasks, scrubTaskRawResponsePayloadForDeletedTasks } from './lib/agentResponseState'
+import { cleanStaleAgentInputDrafts, clearInputDraftState, isEmptyAgentInputDraft, normalizeAgentInputDrafts, remapAgentInputDraftMentionsForPathChange, restoreAgentInputDraftState, restoreGalleryInputDraftState, saveActiveAgentInputDrafts, saveGalleryInputDraft, syncActiveInputDraft, updateInputDraftImages } from './lib/inputDraftState'
 import { ALL_FAVORITES_COLLECTION_ID, DEFAULT_FAVORITE_COLLECTION_ID, createDefaultFavoriteCollection, deleteFavoriteCollectionState, ensureDefaultFavoriteCollection, getTaskFavoriteCollectionIds, mergeFavoriteCollections, normalizeFavoriteCollectionIds, normalizeFavoriteCollectionName, normalizeFavoriteCollections, normalizeFavoritePatch, normalizeLoadedFavoriteState, resolveDefaultFavoriteCollectionId, sameFavoriteCollectionIds } from './lib/favoriteState'
+import { createPersistedState, mergePersistedAgentConversations, migratePersistedState, normalizePersistedState } from './lib/persistedState'
 
 const FAL_RECOVERY_POLL_MS = 10_000
 const CUSTOM_RECOVERY_POLL_MS = 10_000
@@ -207,26 +208,6 @@ function mergeImportedAgentConversations(current: AgentConversation[], imported:
   return merged
 }
 
-function mergeAgentConversationsForStorage(stored: AgentConversation[], legacy: AgentConversation[]) {
-  const merged = new Map<string, AgentConversation>()
-  for (const conversation of stored) merged.set(conversation.id, conversation)
-  for (const conversation of legacy) {
-    const existing = merged.get(conversation.id)
-    if (!existing || conversation.updatedAt >= existing.updatedAt) {
-      merged.set(conversation.id, conversation)
-    }
-  }
-  return [...merged.values()].sort((a, b) => a.createdAt - b.createdAt)
-}
-
-export function migratePersistedState(persistedState: unknown): unknown {
-  if (!isRecord(persistedState)) return persistedState
-  return {
-    ...persistedState,
-    agentConversations: stripPersistedAgentConversations(persistedState.agentConversations),
-  }
-}
-
 function createAgentConversation(now = Date.now()): AgentConversation {
   return {
     id: genId(),
@@ -260,36 +241,7 @@ function getLatestAgentConversation(conversations: AgentConversation[]) {
 }
 
 export function getPersistedState(state: AppState) {
-  const settings = normalizeSettings(state.settings)
-  const galleryInputDraft = saveGalleryInputDraft(state)
-  return {
-    settings,
-    params: state.params,
-    ...(settings.persistInputOnRestart && (state.appMode === 'gallery' || galleryInputDraft)
-      ? {
-          prompt: galleryInputDraft?.prompt ?? '',
-          inputImages: galleryInputDraft?.inputImages.map((img) => ({ id: img.id, dataUrl: '' })) ?? [],
-        }
-      : {}),
-    dismissedCodexCliPrompts: state.dismissedCodexCliPrompts,
-    appMode: state.appMode,
-    galleryInputDraft: settings.persistInputOnRestart && galleryInputDraft
-      ? { ...galleryInputDraft, inputImages: galleryInputDraft.inputImages.map((img) => ({ id: img.id, dataUrl: '' })) }
-      : null,
-    ...(agentConversationMigrationPending && !agentConversationPersistenceReady
-      ? { agentConversations: getPersistableAgentConversations(state.agentConversations) }
-      : {}),
-    activeAgentConversationId: state.activeAgentConversationId,
-    agentInputDrafts: getPersistableAgentInputDrafts(state),
-    agentSidebarCollapsed: state.agentSidebarCollapsed,
-    agentAssetTab: state.agentAssetTab,
-    agentAssetPanelCollapsed: state.agentAssetPanelCollapsed,
-    favoriteCollections: state.favoriteCollections,
-    defaultFavoriteCollectionId: state.defaultFavoriteCollectionId,
-    supportPromptDismissed: state.supportPromptDismissed,
-    supportPromptOpen: state.supportPromptOpen,
-    supportPromptSkippedForImportedData: state.supportPromptSkippedForImportedData,
-  }
+  return createPersistedState(state, agentConversationMigrationPending && !agentConversationPersistenceReady)
 }
 
 async function replaceStoredAgentConversations(conversations: AgentConversation[]) {
@@ -301,75 +253,14 @@ function getPersistableAgentConversation(conversation: AgentConversation): Agent
 }
 
 function mergePersistedState(persistedState: unknown, currentState: AppState): AppState {
-  if (!persistedState || typeof persistedState !== 'object') return currentState
-
-  const persisted = persistedState as Partial<AppState>
-  const settings = normalizeSettings(persisted.settings ?? currentState.settings)
-  const hasPersistedAgentConversations = Array.isArray(persisted.agentConversations)
-  if (hasPersistedAgentConversations && normalizeAgentConversations(persisted.agentConversations).length > 0) {
-    agentConversationMigrationPending = true
-  }
-  const agentConversations = hasPersistedAgentConversations
-    ? normalizeAgentConversations(persisted.agentConversations)
-    : currentState.agentConversations
-  const activeAgentConversationId =
-    typeof persisted.activeAgentConversationId === 'string' && (!hasPersistedAgentConversations || agentConversations.some((conversation) => conversation.id === persisted.activeAgentConversationId))
-      ? persisted.activeAgentConversationId
-      : agentConversations[0]?.id ?? null
-  const appMode = persisted.appMode === 'agent' ? 'agent' : 'gallery'
-  const galleryInputDraft = settings.persistInputOnRestart
-    ? normalizeAgentInputDraft(persisted.galleryInputDraft ?? {
-        prompt: persisted.prompt,
-        inputImages: persisted.inputImages,
-        maskDraft: null,
-        maskEditorImageId: null,
-      })
-    : null
-  const normalizedAgentInputDrafts = hasPersistedAgentConversations
-    ? normalizeAgentInputDrafts(persisted.agentInputDrafts, agentConversations)
-    : normalizeAgentInputDraftsByKey(persisted.agentInputDrafts)
-  let agentInputDrafts = cleanStaleAgentInputDrafts(normalizedAgentInputDrafts, activeAgentConversationId)
-  if (appMode === 'agent' && activeAgentConversationId && !agentInputDrafts[activeAgentConversationId] && settings.persistInputOnRestart && typeof persisted.prompt === 'string') {
-    agentInputDrafts = {
-      ...agentInputDrafts,
-      [activeAgentConversationId]: normalizeAgentInputDraft({
-        prompt: persisted.prompt,
-        inputImages: persisted.inputImages,
-        maskDraft: null,
-        maskEditorImageId: null,
-      }, Date.now()),
-    }
-  }
-  const restoredAgentDraft = appMode === 'agent' && activeAgentConversationId
-    ? agentInputDrafts[activeAgentConversationId] ?? null
-    : null
-  const favoriteCollections = Array.isArray(persisted.favoriteCollections)
-    ? ensureDefaultFavoriteCollection(normalizeFavoriteCollections(persisted.favoriteCollections))
-    : currentState.favoriteCollections
-  const defaultFavoriteCollectionId = resolveDefaultFavoriteCollectionId(favoriteCollections, persisted.defaultFavoriteCollectionId)
+  const plan = normalizePersistedState(persistedState, currentState)
+  if (!plan) return currentState
+  if (plan.shouldMigrateAgentConversations) agentConversationMigrationPending = true
   return {
     ...currentState,
-    ...persisted,
-    settings,
-    appMode,
-    galleryInputDraft: galleryInputDraft && !isEmptyAgentInputDraft(galleryInputDraft) ? galleryInputDraft : null,
-    agentConversations,
-    activeAgentConversationId,
-    agentInputDrafts,
-    agentSidebarCollapsed: Boolean(persisted.agentSidebarCollapsed),
-    agentAssetTab: persisted.agentAssetTab === 'references' ? 'references' : 'outputs',
-    agentAssetPanelCollapsed: Boolean(persisted.agentAssetPanelCollapsed),
-    favoriteCollections,
-    defaultFavoriteCollectionId,
+    ...plan.state,
     activeFavoriteCollectionId: null,
     favoritePickerTaskIds: null,
-    supportPromptDismissed: Boolean(persisted.supportPromptDismissed),
-    supportPromptOpen: Boolean(persisted.supportPromptOpen),
-    supportPromptSkippedForImportedData: Boolean(persisted.supportPromptSkippedForImportedData),
-    prompt: restoredAgentDraft ? restoredAgentDraft.prompt : galleryInputDraft?.prompt ?? '',
-    inputImages: restoredAgentDraft ? restoredAgentDraft.inputImages : galleryInputDraft?.inputImages ?? [],
-    maskDraft: restoredAgentDraft ? restoredAgentDraft.maskDraft : galleryInputDraft?.maskDraft ?? null,
-    maskEditorImageId: restoredAgentDraft ? restoredAgentDraft.maskEditorImageId : galleryInputDraft?.maskEditorImageId ?? null,
   }
 }
 
@@ -581,10 +472,6 @@ async function deleteStoredImageIfUnreferenced(imageId: string) {
       thumbnailVersion: thumbnail.thumbnailVersion,
     })
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
 export const useStore = create<AppState>()(
@@ -1054,7 +941,7 @@ export const useStore = create<AppState>()(
     {
       name: 'gpt-image-playground',
       version: 2,
-      migrate: (persistedState) => migratePersistedState(persistedState),
+      migrate: migratePersistedState,
       partialize: getPersistedState,
       merge: mergePersistedState,
     },
@@ -1551,9 +1438,9 @@ export async function initStore() {
   const legacyAgentConversations = normalizeAgentConversations(useStore.getState().agentConversations)
   const storedTasks = await getAllTasks()
   const storedAgentConversations = normalizeAgentConversations(await getAllAgentConversations())
-  let loadedAgentConversations = mergeAgentConversationsForStorage(storedAgentConversations, legacyAgentConversations)
+  let loadedAgentConversations = mergePersistedAgentConversations(storedAgentConversations, legacyAgentConversations)
   const currentAgentConversations = normalizeAgentConversations(useStore.getState().agentConversations)
-  loadedAgentConversations = mergeAgentConversationsForStorage(loadedAgentConversations, currentAgentConversations)
+  loadedAgentConversations = mergePersistedAgentConversations(loadedAgentConversations, currentAgentConversations)
   const activeAgentConversationId = useStore.getState().activeAgentConversationId && loadedAgentConversations.some((conversation) => conversation.id === useStore.getState().activeAgentConversationId)
     ? useStore.getState().activeAgentConversationId
     : loadedAgentConversations[0]?.id ?? null

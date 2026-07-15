@@ -134,7 +134,7 @@ import { callImageApi } from './lib/api'
 import { callAgentResponsesApi, callBatchImageSingle } from './lib/agentApi'
 import { getFalQueuedImageResult } from './lib/falAiImageApi'
 import { removeKeyedBackgroundFromDataUrl } from './lib/transparentImage'
-import { clearFailedTasks, deleteFavoriteCollection, editOutputs, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, migratePersistedState, regenerateAgentAssistantMessage, removeMultipleTasks, removeTask, reuseConfig, stopAgentResponse, submitAgentMessage, submitTask, taskMatchesFilterStatus, taskMatchesSearchQuery, useStore } from './store'
+import { clearFailedTasks, deleteFavoriteCollection, editOutputs, getErrorToastMessage, getPersistedState, getTaskApiProfile, importData, initStore, markInterruptedOpenAIRunningTasks, regenerateAgentAssistantMessage, removeMultipleTasks, removeTask, reuseConfig, stopAgentResponse, submitAgentMessage, submitTask, taskMatchesFilterStatus, taskMatchesSearchQuery, useStore } from './store'
 
 const commitTaskDeletionImplementation = vi.mocked(commitTaskDeletion).getMockImplementation()!
 const deleteDbImageImplementation = vi.mocked(deleteDbImage).getMockImplementation()!
@@ -571,6 +571,9 @@ describe('input persistence setting', () => {
       prompt: 'prompt',
       inputImages: [imageA],
       galleryInputDraft: null,
+      agentConversations: [],
+      activeAgentConversationId: null,
+      agentInputDrafts: {},
       dismissedCodexCliPrompts: [],
     })
   })
@@ -583,13 +586,36 @@ describe('input persistence setting', () => {
   })
 
   it('omits input when restart input restore is disabled', () => {
-    useStore.setState({ settings: { ...DEFAULT_SETTINGS, persistInputOnRestart: false } })
+    const conversation = agentConversation()
+    useStore.setState({
+      settings: { ...DEFAULT_SETTINGS, persistInputOnRestart: false },
+      appMode: 'agent',
+      prompt: '不应持久化的可见 Agent 输入',
+      inputImages: [imageA],
+      galleryInputDraft: {
+        prompt: '不应持久化的画廊草稿',
+        inputImages: [imageA],
+        maskDraft: null,
+        maskEditorImageId: null,
+      },
+      agentConversations: [conversation],
+      activeAgentConversationId: conversation.id,
+      agentInputDrafts: {
+        [conversation.id]: {
+          prompt: '不应持久化的 Agent 草稿',
+          inputImages: [imageA],
+          maskDraft: null,
+          maskEditorImageId: null,
+        },
+      },
+    })
 
     const persisted = getPersistedState(useStore.getState())
 
     expect(persisted).not.toHaveProperty('prompt')
     expect(persisted).not.toHaveProperty('inputImages')
     expect(persisted.galleryInputDraft).toBeNull()
+    expect(persisted.agentInputDrafts).toEqual({})
   })
 
   it('writes empty input when persisted input is cleared', () => {
@@ -826,34 +852,6 @@ describe('agent conversation persistence', () => {
     expect(state.maskEditorImageId).toBeNull()
   })
 
-  it('strips generated image payloads when migrating old persisted state', () => {
-    const migrated = migratePersistedState({
-      settings: { ...DEFAULT_SETTINGS },
-      agentConversations: [agentConversation({
-        rounds: [{
-          id: 'round-a',
-          index: 1,
-          parentRoundId: null,
-          userMessageId: 'user-a',
-          prompt: '画一张图',
-          inputImageIds: [],
-          outputTaskIds: ['task-a'],
-          responseOutput: [
-            { type: 'image_generation_call', id: 'image-call-a', result: 'legacy-base64-a' },
-            { type: 'image_generation_call', id: 'image-call-b', result: { b64_json: 'legacy-base64-b', base64: 'legacy-base64-c' } },
-          ],
-          status: 'done',
-          error: null,
-          createdAt: 1,
-          finishedAt: 2,
-        }],
-      })],
-    })
-
-    const serializedMigrated = JSON.stringify(migrated)
-    expect(serializedMigrated).not.toContain('legacy-base64')
-    expect(serializedMigrated).toContain('image_generation_call')
-  })
 })
 
 describe('fal task recovery', () => {
@@ -3239,7 +3237,7 @@ describe('task deletion', () => {
       { id: liveId, prompt: livePrompt },
       { id: 'image_3', prompt: 'missing prompt' },
     ])
-    expect(JSON.parse(cleanedOutput?.output ?? '{}').images).toEqual([
+    expect(JSON.parse(typeof cleanedOutput?.output === 'string' ? cleanedOutput.output : '{}').images).toEqual([
       { id: liveId, status: 'done' },
       { id: 'image_3', status: 'done' },
     ])
@@ -3892,7 +3890,7 @@ describe('agent built-in image tool failure', () => {
       { id: 'image_3', prompt: 'blank id' },
       { id: 'image_4', prompt: 'missing id' },
     ])
-    expect(JSON.parse(functionOutput?.output ?? '{}').images.map((item: { id: string }) => item.id)).toEqual(['duplicate', 'duplicate_2', 'image_3', 'image_4'])
+    expect(JSON.parse(typeof functionOutput?.output === 'string' ? functionOutput.output : '{}').images.map((item: { id: string }) => item.id)).toEqual(['duplicate', 'duplicate_2', 'image_3', 'image_4'])
     const continuationInput = JSON.stringify(vi.mocked(callAgentResponsesApi).mock.calls[1][0].input)
     expect(continuationInput).toContain('duplicate_2')
     expect(continuationInput).not.toContain(' duplicate ')

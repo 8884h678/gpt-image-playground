@@ -55,7 +55,11 @@ function getBatchImageCount(item: ResponsesOutputItem) {
 function getTextFromOutputItem(item: ResponsesOutputItem) {
   if (item.type !== 'message') return ''
   return (item.content ?? [])
-    .map((part) => typeof part.text === 'string' ? part.text : '')
+    .map((part) => {
+      if ((part.type === 'output_text' || part.type === 'text') && typeof part.text === 'string') return part.text
+      if (part.type === 'refusal' && typeof part.refusal === 'string') return part.refusal
+      return ''
+    })
     .filter(Boolean)
     .join('\n')
     .trim()

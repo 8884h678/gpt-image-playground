@@ -93,7 +93,7 @@ describe('agent response persistence', () => {
     expect(getPersistableAgentConversations(persisted)).toEqual(persisted)
   })
 
-  it('cleans legacy unknown state and task payloads while preserving malformed input', () => {
+  it('cleans legacy unknown state and task payloads while dropping malformed output items', () => {
     const responseOutput: unknown[] = [
       { type: 'image_generation_call', result: { base64: 'legacy-base64' } },
       'unknown-item',
@@ -111,7 +111,7 @@ describe('agent response persistence', () => {
     expect(stripPersistedAgentConversations({ rounds: [] })).toEqual({ rounds: [] })
     expect(getPersistableRawResponsePayload(payload)).toBe(JSON.stringify({
       id: 'response-a',
-      output: [{ type: 'image_generation_call' }, 'unknown-item'],
+      output: [{ type: 'image_generation_call' }],
     }, null, 2))
     expect(getPersistableRawResponsePayload('{bad json')).toBe('{bad json')
     expect(getPersistableRawResponsePayload('{"output":null}')).toBe('{"output":null}')
@@ -126,7 +126,7 @@ describe('agent response input and merging', () => {
       { type: 'message', content: [
         { type: 'output_text', text: '第一段', annotations: [{ type: 'url_citation' }] },
         { type: 'text', text: '第二段' },
-        { type: 'refusal', text: '忽略' },
+        { type: 'output_text', text: '拒绝内容' },
       ] },
       { type: 'function_call', call_id: 'paired', name: 'tool' },
       { type: 'function_call', call_id: 'orphan-call', name: 'tool' },
@@ -140,6 +140,7 @@ describe('agent response input and merging', () => {
       { role: 'assistant', content: [
         { type: 'output_text', text: '第一段' },
         { type: 'output_text', text: '第二段' },
+        { type: 'output_text', text: '拒绝内容' },
       ] },
       output[3],
       output[6],
@@ -148,6 +149,7 @@ describe('agent response input and merging', () => {
       { role: 'assistant', content: [
         { type: 'output_text', text: '第一段' },
         { type: 'output_text', text: '第二段' },
+        { type: 'output_text', text: '拒绝内容' },
       ] },
       ...output.slice(3),
     ])
@@ -200,7 +202,7 @@ describe('agent response input and merging', () => {
 
   it('prefers round output and otherwise reads the first valid task payload', () => {
     const stored = [{ type: 'message', id: 'stored' }]
-    const fallback = [{ type: 'message', id: 'fallback' }]
+    const fallback = [{ type: 'message', id: 'fallback', content: [] }]
     const tasks = [
       task('missing-output', { rawResponsePayload: '{"output":null}' }),
       task('valid-output', { rawResponsePayload: JSON.stringify({ output: fallback }) }),
@@ -279,7 +281,7 @@ describe('deleted Agent task response scrubbing', () => {
       { id: liveId, prompt: livePrompt },
       { id: 'image_3', prompt: 'missing prompt' },
     ])
-    expect(JSON.parse(scrubbed[1].output ?? '{}').images).toEqual([
+    expect(JSON.parse(typeof scrubbed[1].output === 'string' ? scrubbed[1].output : '{}').images).toEqual([
       { id: liveId, status: 'done' },
       { id: 'image_3', status: 'done' },
     ])
@@ -326,7 +328,7 @@ describe('deleted Agent task response scrubbing', () => {
       { id: 'item-a', prompt: 'first' },
       { id: 'item-c', prompt: 'missing task' },
     ])
-    expect(JSON.parse(scrubbed[1].output ?? '{}').images).toEqual([
+    expect(JSON.parse(typeof scrubbed[1].output === 'string' ? scrubbed[1].output : '{}').images).toEqual([
       { id: 'item-a', status: 'done' },
       { id: 'item-c', status: 'error' },
     ])
@@ -371,7 +373,7 @@ describe('Agent response recovery derivation', () => {
 
     expect(recovered?.recoveredTaskIds).toEqual([single.id, batchA.id, batchB.id])
     expect(recovered?.allSuccessful).toBe(false)
-    expect(recovered?.additions.map((item) => JSON.parse(item.output ?? '{}'))).toEqual([
+    expect(recovered?.additions.map((item) => JSON.parse(typeof item.output === 'string' ? item.output : '{}'))).toEqual([
       { id: 'single-id', status: 'done' },
       { images: [
         { id: 'duplicate', status: 'done' },
@@ -439,11 +441,13 @@ describe('Agent response recovery derivation', () => {
       { type: 'function_call_output', output: '{"status":"done"}' },
       { type: 'function_call_output', output: '{"images":[{"status":"done"},{"status":"error"}]}' },
       { type: 'function_call_output', output: '{bad json' },
+      { type: 'function_call_output', output: [{ type: 'input_text', text: '{"status":"done"}' }] },
       { type: 'image_generation_call' },
     ]
     const doneTasks = [task('done-a'), task('done-b'), task('done-c'), task('done-d')]
     expect(countResponseToolCalls(output)).toBe(1)
     expect(getAgentRecoveredToolCallCount(output, doneTasks)).toBe(4)
+    expect(getAgentRecoveredToolCallCount([{ type: 'function_call_output', output: [{ type: 'input_text', text: '{"status":"done"}' }] }], [])).toBe(0)
 
     const failedA = task('failed-a', { status: 'error', outputImages: [], error: '明确失败' })
     const failedB = task('failed-b', { status: 'error', outputImages: [], error: null })

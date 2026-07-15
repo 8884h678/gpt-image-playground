@@ -347,6 +347,17 @@ export interface ImageApiResponse {
   n?: number
 }
 
+export interface ResponsesInputContentItem {
+  type?: string
+  text?: string
+  image_url?: string
+  file_id?: string
+  file_url?: string
+  file_data?: string
+  filename?: string
+  detail?: string
+}
+
 export interface ResponsesOutputItem {
   id?: string
   type?: string
@@ -358,8 +369,8 @@ export interface ResponsesOutputItem {
   name?: string
   /** function_call: JSON-encoded arguments string */
   arguments?: string
-  /** function_call_output: JSON/text output string */
-  output?: string
+  /** function_call_output: JSON/text string or Responses input content */
+  output?: string | ResponsesInputContentItem[]
   annotations?: Array<{
     type?: string
     start_index?: number
@@ -370,6 +381,7 @@ export interface ResponsesOutputItem {
   content?: Array<{
     type?: string
     text?: string
+    refusal?: string
     annotations?: Array<{
       type?: string
       start_index?: number
@@ -378,7 +390,7 @@ export interface ResponsesOutputItem {
       title?: string
     }>
   }>
-  result?: string | {
+  result?: string | null | {
     b64_json?: string
     base64?: string
     image?: string

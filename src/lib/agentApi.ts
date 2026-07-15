@@ -1,6 +1,7 @@
 import { DEFAULT_AGENT_MAX_TOOL_ROUNDS, DEFAULT_STREAM_PARTIAL_IMAGES, type ApiProfile, type AppSettings, type ResponsesApiResponse, type ResponsesOutputItem, type TaskParams } from '../types'
 import { buildApiUrl, readClientDevProxyConfig, shouldUseApiProxy } from './devProxy'
 import { appendStreamingFormatHint, getApiErrorMessage, getResponsesImageResultBase64, maybeAppendStreamingHint, MIME_MAP, normalizeBase64Image, pickActualParams } from './imageApiShared'
+import { normalizeResponsesOutputItems } from './responsesOutputState'
 import { isEventStreamResponse, readJsonServerSentEvents, throwIfAborted } from './serverSentEvents'
 
 export interface AgentApiResultImage {
@@ -336,6 +337,8 @@ function extractText(payload: ResponsesApiResponse) {
     for (const part of item.content ?? []) {
       if ((part.type === 'output_text' || part.type === 'text') && typeof part.text === 'string') {
         chunks.push(applyUrlCitations(part.text, part.annotations))
+      } else if (part.type === 'refusal' && typeof part.refusal === 'string') {
+        chunks.push(part.refusal)
       }
     }
   }
@@ -400,12 +403,23 @@ function extractImageFromOutputItem(item: ResponsesOutputItem, fallbackMime: str
   }
 }
 
+function normalizeResponsePayload(value: unknown): ResponsesApiResponse | null {
+  if (!isRecordValue(value)) return null
+  return {
+    ...value,
+    ...(typeof value.id === 'string' ? { id: value.id } : { id: undefined }),
+    output: normalizeResponsesOutputItems(value.output),
+  }
+}
+
 function getStreamResponsePayload(event: Record<string, unknown>): ResponsesApiResponse | null {
   const response = event.response
-  if (isRecordValue(response)) return response as ResponsesApiResponse
+  const payload = normalizeResponsePayload(response)
+  if (payload) return payload
 
   const item = event.item
-  if (isRecordValue(item)) return { output: [item as ResponsesOutputItem] }
+  const output = normalizeResponsesOutputItems([item])
+  if (output.length) return { output }
 
   return null
 }
@@ -618,7 +632,9 @@ export async function callAgentResponsesApi(opts: {
       return parseAgentStreamResponse(response, mime, controller.signal, signal, onTextDelta, onOutputItems, onImageToolStarted, onImagePartialImage, onImageToolCompleted, onImageToolFailed)
     }
 
-    const payload = await response.json() as ResponsesApiResponse
+    const rawPayload = await response.json() as unknown
+    const payload = normalizeResponsePayload(rawPayload)
+    if (!payload) throw new Error('Agent 接口返回格式无效')
     throwIfAborted(controller.signal, signal)
     return {
       responseId: payload.id,
@@ -674,7 +690,8 @@ export async function callAgentConversationTitleApi(opts: {
       throw new Error(await getApiErrorMessage(response))
     }
 
-    const payload = await response.json() as ResponsesApiResponse
+    const payload = normalizeResponsePayload(await response.json())
+    if (!payload) throw new Error('Agent 标题接口返回格式无效')
     return parseAgentConversationTitleXml(extractText(payload))
   } finally {
     clearTimeout(timeoutId)
@@ -844,7 +861,8 @@ export async function callBatchImageSingle(opts: {
     }
 
     // Non-streaming
-    const payload = await response.json() as ResponsesApiResponse
+    const payload = normalizeResponsePayload(await response.json())
+    if (!payload) throw new Error('图像接口返回格式无效')
     const images = extractImages(payload, mime)
     const image = images[0] ?? null
     if (image) await onImageToolCompleted?.(image)

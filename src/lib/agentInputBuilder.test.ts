@@ -195,6 +195,58 @@ describe('agent input builder', () => {
     expect(serialized).not.toContain('legacy-base64')
   })
 
+  it('builds input safely from malformed legacy response output', async () => {
+    const previous = round('round-1', 1, { outputTaskIds: ['legacy-task'] })
+    const currentRound = round('round-2', 2, { parentRoundId: previous.id, status: 'running', finishedAt: null })
+    const legacyTask = task('legacy-task', {
+      rawResponsePayload: JSON.stringify({
+        output: [
+          { type: 'message', content: [
+            null,
+            { type: 'output_text', text: 123 },
+            { type: 'output_text', text: '安全历史回复' },
+            { type: 'refusal', refusal: '历史拒绝回复' },
+            { type: 'future_content_part', payload: true },
+          ] },
+          { type: 'function_call', call_id: 'bad-call', name: 'tool', arguments: null },
+          { type: 'function_call_output', call_id: 'bad-call', output: null },
+          { type: 'function_call', call_id: 'paired', name: 'tool', arguments: '{}' },
+          { type: 'function_call_output', call_id: 'paired', output: '{}' },
+          { type: 'function_call', call_id: 'content-output', name: 'tool', arguments: '{}' },
+          { type: 'function_call_output', call_id: 'content-output', output: [
+            { type: 'input_text', text: '数组工具输出' },
+            { type: 'future_input_part', payload: true },
+          ] },
+          { type: 'future_response_item', payload: true },
+        ],
+      }),
+    })
+
+    const input = await buildAgentApiInput({
+      conversation: conversation([previous, currentRound], [message(previous, '历史请求'), message(currentRound, '继续')]),
+      currentRound,
+      tasks: [legacyTask],
+      loadImage: noImage,
+    })
+    const serialized = JSON.stringify(input)
+
+    expect(serialized).toContain('安全历史回复')
+    expect(serialized).toContain('历史拒绝回复')
+    expect(serialized).toContain('数组工具输出')
+    expect(serialized).toContain('future_input_part')
+    expect(serialized).toContain('future_response_item')
+    expect(serialized).toContain('paired')
+    expect(serialized).not.toContain('bad-call')
+    expect(input).toContainEqual({
+      role: 'assistant',
+      content: [
+        { type: 'output_text', text: '安全历史回复' },
+        { type: 'output_text', text: '历史拒绝回复' },
+      ],
+    })
+    expect(serialized).not.toContain('"type":"refusal"')
+  })
+
   it('marks deleted historical output slots without restoring deleted payloads', async () => {
     const previous = round('round-1', 1, {
       outputTaskIds: ['deleted-task', 'live-task'],

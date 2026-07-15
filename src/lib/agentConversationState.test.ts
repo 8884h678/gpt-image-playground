@@ -116,6 +116,31 @@ describe('agent conversation state', () => {
     expect(normalized[0].messages.map((message) => message.id)).toEqual(['user-round-a'])
   })
 
+  it('filters malformed response output items while preserving unknown typed items', () => {
+    const normalized = normalizeAgentConversations([{
+      id: 'conversation-a',
+      rounds: [{
+        ...round('round-a', null, 1),
+        responseOutput: [
+          null,
+          [],
+          'invalid',
+          {},
+          { type: '' },
+          { type: '   ' },
+          { type: 'future_response_item', custom: { enabled: true } },
+          { type: 'message', content: [] },
+        ],
+      }],
+      messages: [],
+    }])
+
+    expect(normalized[0].rounds[0].responseOutput).toEqual([
+      { type: 'future_response_item', custom: { enabled: true } },
+      { type: 'message', content: [] },
+    ])
+  })
+
   it('keeps the first entity when persisted IDs are duplicated', () => {
     const normalized = normalizeAgentConversations([{
       id: 'conversation-a',
