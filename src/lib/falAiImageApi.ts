@@ -33,7 +33,7 @@ async function mapFalImageSize(size: string): Promise<{ width: number; height: n
 }
 
 function mapFalQuality(quality: TaskParams['quality']): 'low' | 'medium' | 'high' {
-  return quality === 'auto' ? 'high' : quality
+  return quality === 'low' || quality === 'medium' ? quality : 'high'
 }
 
 function configureFal(profile: ApiProfile) {
