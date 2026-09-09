@@ -10,5 +10,5 @@ export function getImageGenerationModel(profile: ApiProfile) {
 }
 
 export function isGptImage25Model(model: string) {
-  return GPT_IMAGE_25_MODELS.some((value) => value === model.trim())
+  return model.trim().toLowerCase().includes('gpt-image-2.5')
 }

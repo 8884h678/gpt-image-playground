@@ -1,6 +1,7 @@
 import { fal } from '@fal-ai/client'
 import type { ApiProfile, FalApiResponse, TaskParams } from '../types'
 import { DEFAULT_FAL_BASE_URL } from './apiProfiles'
+import { isGptImage25Model } from './imageModels'
 import {
   assertImageInputPayloadSize,
   assertMaskEditFileSize,
@@ -38,7 +39,7 @@ async function mapFalImageSize(size: string): Promise<{ width: number; height: n
 }
 
 function mapFalQuality(quality: TaskParams['quality'], model: string): 'low' | 'medium' | 'high' | 'xhigh' | 'max' {
-  if (model.includes('gpt-image-2.5/') && (quality === 'xhigh' || quality === 'max')) return quality
+  if (isGptImage25Model(model) && (quality === 'xhigh' || quality === 'max')) return quality
   return quality === 'low' || quality === 'medium' ? quality : 'high'
 }
 
