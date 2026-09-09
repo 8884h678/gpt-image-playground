@@ -393,7 +393,7 @@ export function createDefaultFalProfile(overrides: Partial<ApiProfile> = {}): Ap
     apiProxy: false,
     streamImages: false,
     streamPartialImages: DEFAULT_STREAM_PARTIAL_IMAGES,
-    transparentBackgroundMethod: 'local',
+    transparentBackgroundMethod: 'api',
     ...overrides,
   }
 }
@@ -431,7 +431,7 @@ export function switchApiProfileProvider(profile: ApiProfile, provider: ApiProvi
       responseFormatB64Json: savedDraft?.responseFormatB64Json,
       streamImages: false,
       streamPartialImages: savedDraft?.streamPartialImages ?? DEFAULT_STREAM_PARTIAL_IMAGES,
-      transparentBackgroundMethod: 'local',
+      transparentBackgroundMethod: savedDraft?.transparentBackgroundMethod ?? 'api',
       providerDrafts,
     }
   }

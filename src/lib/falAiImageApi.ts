@@ -63,6 +63,8 @@ async function createFalRequestInput(opts: CallApiOptions, model: string): Promi
     output_format: opts.params.output_format,
   }
 
+  if (opts.nativeTransparentBackground) input.background = 'transparent'
+
   if (isEdit) {
     input.image_urls = opts.inputImageDataUrls
   }

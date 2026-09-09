@@ -72,9 +72,9 @@ describe('normalizeApiProfile', () => {
     expect(normalizeApiProfile({ transparentBackgroundMethod: 'local' }).transparentBackgroundMethod).toBe('local')
     expect(normalizeApiProfile({}, { transparentBackgroundMethod: 'local' }).transparentBackgroundMethod).toBe('local')
     expect(normalizeApiProfile({ transparentBackgroundMethod: 'invalid' }).transparentBackgroundMethod).toBe('api')
-    expect(normalizeApiProfile({ provider: 'fal' }).transparentBackgroundMethod).toBe('local')
+    expect(normalizeApiProfile({ provider: 'fal' }).transparentBackgroundMethod).toBe('api')
     expect(normalizeApiProfile({ provider: 'fal', transparentBackgroundMethod: 'api' }).transparentBackgroundMethod).toBe('api')
-    expect(normalizeApiProfile({ provider: 'fal', transparentBackgroundMethod: 'invalid' }).transparentBackgroundMethod).toBe('local')
+    expect(normalizeApiProfile({ provider: 'fal', transparentBackgroundMethod: 'invalid' }).transparentBackgroundMethod).toBe('api')
   })
 })
 
@@ -1632,7 +1632,7 @@ describe('custom providers', () => {
     const falProfile = switchApiProfileProvider(openaiProfile, 'fal')
     const customProfile = switchApiProfileProvider(openaiProfile, provider.id, provider)
 
-    expect(falProfile).toMatchObject({ provider: 'fal', apiMode: 'images', streamImages: false, transparentBackgroundMethod: 'local' })
+    expect(falProfile).toMatchObject({ provider: 'fal', apiMode: 'images', streamImages: false, transparentBackgroundMethod: 'api' })
     expect(customProfile).toMatchObject({ provider: provider.id, apiMode: 'images', streamImages: false })
   })
 
