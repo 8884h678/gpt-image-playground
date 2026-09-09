@@ -1,4 +1,9 @@
-## v0.7.8（2026-08-28）
+## v0.7.9（2026-09-09）
+
+### 新增
+- 适配 `gpt-image-2.5-sunburst` 和 `gpt-image-2.5-flare` 模型，默认图像模型更新为 `gpt-image-2.5-sunburst`。
+- Responses API 新增独立的图像生成模型配置，支持通过设置页和 `?imageGenerationModel=` 查询参数指定；留空时不发送工具模型 ID，保持 API 默认值。
+- 支持 `xhigh`、`max` 质量档位，仅适用于 GPT Image 2.5 模型；旧模型自动降为 `high`。
 
 ### 变更
-- 统一服务商类型下拉列表与 API 配置列表的选项行高和操作按钮尺寸，提升界面一致性。
+- API 模式切换仅更新接口类型，不再自动替换模型 ID。

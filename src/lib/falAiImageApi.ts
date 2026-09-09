@@ -20,7 +20,12 @@ const DEFAULT_FAL_IMAGE_SIZE = { width: 1360, height: 1024 }
 
 function mapFalEndpoint(model: string, isEdit: boolean): string {
   const normalized = model.trim().replace(/^\/+/, '').replace(/\/+$/, '') || 'openai/gpt-image-2'
-  return isEdit && !normalized.endsWith('/edit') ? `${normalized}/edit` : normalized
+  if (normalized.endsWith('/edit')) return isEdit ? normalized : normalized.replace(/\/edit$/, '/text-to-image')
+  if (normalized.endsWith('/text-to-image')) return isEdit ? normalized.replace(/\/text-to-image$/, '/edit') : normalized
+  if (normalized.includes('gpt-image-2.5/')) {
+    return `${normalized}/${isEdit ? 'edit' : 'text-to-image'}`
+  }
+  return isEdit ? `${normalized}/edit` : normalized
 }
 
 async function mapFalImageSize(size: string): Promise<{ width: number; height: number }> {
@@ -32,7 +37,8 @@ async function mapFalImageSize(size: string): Promise<{ width: number; height: n
   return DEFAULT_FAL_IMAGE_SIZE
 }
 
-function mapFalQuality(quality: TaskParams['quality']): 'low' | 'medium' | 'high' {
+function mapFalQuality(quality: TaskParams['quality'], model: string): 'low' | 'medium' | 'high' | 'xhigh' | 'max' {
+  if (model.includes('gpt-image-2.5/') && (quality === 'xhigh' || quality === 'max')) return quality
   return quality === 'low' || quality === 'medium' ? quality : 'high'
 }
 
@@ -46,12 +52,12 @@ function configureFal(profile: ApiProfile) {
   fal.config(config)
 }
 
-async function createFalRequestInput(opts: CallApiOptions): Promise<Record<string, unknown>> {
+async function createFalRequestInput(opts: CallApiOptions, model: string): Promise<Record<string, unknown>> {
   const isEdit = opts.inputImageDataUrls.length > 0
   const input: Record<string, unknown> = {
     prompt: opts.prompt,
     image_size: isEdit && opts.params.size === 'auto' ? 'auto' : await mapFalImageSize(opts.params.size),
-    quality: mapFalQuality(opts.params.quality),
+    quality: mapFalQuality(opts.params.quality, model),
     num_images: Math.min(4, Math.max(1, opts.params.n || 1)),
     output_format: opts.params.output_format,
   }
@@ -208,7 +214,7 @@ export async function callFalAiImageApi(opts: CallApiOptions, profile: ApiProfil
 
     const isEdit = opts.inputImageDataUrls.length > 0
     const endpoint = mapFalEndpoint(profile.model, isEdit)
-    const input = await createFalRequestInput(opts)
+    const input = await createFalRequestInput(opts, profile.model)
     const result = await fal.subscribe(endpoint, {
       input,
       logs: true,
