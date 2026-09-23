@@ -8,6 +8,7 @@ import type {
   ApiMode,
   ApiProfile,
   AppSettings,
+  PresetConfig,
   AppMode,
   TaskParams,
   InputImage,
@@ -275,7 +276,7 @@ interface AppState {
 
   // 设置
   settings: AppSettings
-  previousPresetConfig: Pick<AppSettings, 'customProviders' | 'profiles'> | null
+  previousPresetConfig: PresetConfig | null
   setSettings: (s: Partial<AppSettings>) => void
   setPresetImportedSettings: (
     importedSettings: Partial<AppSettings> | unknown,
@@ -4510,7 +4511,7 @@ export async function importData(input: File | File[], options: ImportOptions = 
     if (options.importConfig && settingsManifests.length) {
       const state = useStore.getState()
       const providerIds = new Set(settingsManifests.flatMap((part) =>
-        part.manifest.settings?.customProviders.map((provider) => provider.id) ?? [],
+        part.manifest.settings?.customProviders?.map((provider) => provider.id) ?? [],
       ))
       const profileIds = new Set(settingsManifests.flatMap((part) =>
         part.manifest.settings?.profiles.map((profile) => profile.id) ?? [],
