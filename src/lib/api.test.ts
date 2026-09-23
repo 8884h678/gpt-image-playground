@@ -3,7 +3,7 @@ import { DEFAULT_PARAMS } from '../types'
 import { createDefaultOpenAIProfile, DEFAULT_IMAGES_MODEL, DEFAULT_SETTINGS } from './apiProfiles'
 import { normalizePersistedState } from './persistedState'
 import { callImageApi } from './api'
-import { maybeAppendStreamingHint } from './imageApiShared'
+import { maybeAppendImageToolDroppedHint, maybeAppendStreamingHint } from './imageApiShared'
 
 describe('API error hints', () => {
   it.each([false, true])('uses the transparent background hint when streaming is %s', (streamImages) => {
@@ -12,6 +12,11 @@ describe('API error hints', () => {
     expect(maybeAppendStreamingHint(message, 400, streamImages)).toBe(
       `${message}\n提示：当前使用的 API 不支持为该模型使用原生透明背景，请将「透明背景实现方式」切换为「本地后处理」。`,
     )
+  })
+
+  it('leaves other tool choice errors unchanged', () => {
+    const message = 'The combination of tool_choice and tools is not supported.'
+    expect(maybeAppendImageToolDroppedHint(message)).toBe(message)
   })
 })
 
@@ -174,7 +179,7 @@ describe('callImageApi', () => {
     expect(result.actualParams).toMatchObject({ quality: 'xhigh' })
   })
 
-  it('explains the image tool dropped error without retrying the Responses request', async () => {
+  it.each([false, true])('explains the image tool dropped error without retrying when streaming is %s', async (streamImages) => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
       error: { message: "Tool choice 'required' must be specified with 'tools' parameter." },
     }), {
@@ -187,12 +192,12 @@ describe('callImageApi', () => {
         ...DEFAULT_SETTINGS,
         apiKey: 'test-key',
         apiMode: 'responses',
-        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({ ...profile, apiMode: 'responses' as const })),
+        profiles: DEFAULT_SETTINGS.profiles.map((profile) => ({ ...profile, apiMode: 'responses' as const, streamImages })),
       },
       prompt: 'prompt',
       params: { ...DEFAULT_PARAMS },
       inputImageDataUrls: [],
-    })).rejects.toThrow(/Tool choice 'required' must be specified with 'tools' parameter\.[\s\S]*image_generation/)
+    })).rejects.toThrow(/^Tool choice 'required' must be specified with 'tools' parameter\.\n提示：当前使用的 API 可能未正确转发图像生成工具，请尝试更换支持该工具的接口或模型。$/)
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)).tool_choice).toBe('required')
