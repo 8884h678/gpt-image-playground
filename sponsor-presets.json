@@ -35,44 +35,6 @@
           "b64JsonPaths": []
         }
       }
-    },
-    {
-      "id": "custom-9527-code",
-      "name": "9527 CODE",
-      "template": "http-image",
-      "submit": {
-        "path": "api/image-tasks",
-        "method": "POST",
-        "contentType": "json",
-        "body": {
-          "model": "$profile.model",
-          "prompt": "$prompt",
-          "response_format": "url",
-          "async": true,
-          "size": "$params.size",
-          "quality": "$params.quality",
-          "output_format": "$params.output_format",
-          "output_compression": "$params.output_compression",
-          "moderation": "$params.moderation",
-          "n": "$params.n",
-          "images": "$inputImages.dataUrls",
-          "maskDataUrl": "$mask.dataUrl"
-        },
-        "taskIdPath": "task_id"
-      },
-      "poll": {
-        "path": "api/image-tasks/{task_id}",
-        "method": "GET",
-        "intervalSeconds": 2,
-        "statusPath": "status",
-        "successValues": ["succeeded"],
-        "failureValues": ["failed", "cancelled"],
-        "errorPath": "error.message",
-        "result": {
-          "imageUrlPaths": ["data.*.url"],
-          "b64JsonPaths": []
-        }
-      }
     }
   ],
   "profiles": [
@@ -121,16 +83,6 @@
       "baseUrl": "https://api.apimart.ai/v1",
       "model": "gpt-image-2",
       "apiMode": "images"
-    },
-    {
-      "id": "9527-code",
-      "name": "9527 CODE",
-      "description": "[9527 CODE](https://9527.codes) 是企业级满血 AI 中转服务平台，专注提供 Claude Code、Codex 等主流模型的高稳定中转能力，为企业级 AI 使用提供稳定、合规、高效的一站式解决方案。",
-      "provider": "custom-9527-code",
-      "baseUrl": "https://tu.9527.codes/",
-      "model": "gpt-image-2",
-      "apiMode": "images",
-      "apiProxy": false
     },
     {
       "id": "sublyx",
