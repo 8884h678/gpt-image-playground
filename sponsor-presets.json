@@ -90,7 +90,7 @@
       "description": "[Sublyx](https://api.sublyx.org/register?aff=U62PAZERCHEA) 是一家稳定高效的 AI API 聚合网关，支持 OpenAI、Claude、Grok、Codex、gpt-image-2 等主流模型，兼容 OpenAI SDK、Claude Code、Codex、Cherry Studio 等常用工具。通过[链接注册](https://api.sublyx.org/register?aff=U62PAZERCHEA)并使用优惠码 `IMG2`，可额外领取 10 刀额度。[生图工作台](https://img2.icedit.ai)",
       "provider": "sb2api-async",
       "baseUrl": "https://api.sublyx.org/v1",
-      "model": "gpt-image-2",
+      "model": "gpt-image2.5-flare",
       "apiMode": "images"
     }
   ]
